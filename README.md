@@ -17,8 +17,16 @@ https://github.com/kubernetes-sigs/external-dns/blob/master/docs/tutorials/aws.m
 
 Where possible, I leverage the IAM Role for Service Account pattern. This satisfies the principle of least-privilege by allowing granular IAM access only to specific service accounts and pods that need it, as opposed to the general node groups' IAM role. Of course, there are still a few required IAM permissions for the node group role.
 
+# Extracting the Jenkins admin password
+
+In `terraform/roots/kubernetes`, run `terraform console` and execute the following command:
+```
+nonsensitive(module.jenkins.admin_password)
+```
+
 # Deployment walkthrough
 ## AWS Terraform
+
 * Deploys a basic VPC with a combination of private and public subnets across two availability zones.
   * If this were an actual production environment, I'd want to use all possible zones if possible.
   * Includes an internet gateway and two NAT gateways.
@@ -27,6 +35,7 @@ Where possible, I leverage the IAM Role for Service Account pattern. This satisf
 * Deploys the node group. All nodes must reside in private subnets. Defaults to the standard Amazon Linux 2 AMI. Remote access wasn't needed, so it remains disabled. Standard IAM role with necessary permissions apply.
 
 ## Kubernetes Terraform
+
 * Installs (with Helm) a driver for AWS EFS support and a StorageClass so that the persistent volume we need for Jenkins can be backed by EFS. Created an IRSA for the specific permissions it needs.
 * Installs [ExternalDNS](https://github.com/kubernetes-sigs/external-dns) so that the cluster has permission to update Route53 records for load balancers and ingresses. Also needs its own role; solved with IRSA.
 * Installs the AWS Load Balancer Controller for better integration with AWS-native resources for Ingresses. Ensured that it's the default Ingress class. Again, IRSA to the rescue.
@@ -35,6 +44,7 @@ Where possible, I leverage the IAM Role for Service Account pattern. This satisf
   * Speaking of the admin password - thanks to a combination of a few environment variables that were set in the cluster, we actually control the admin password saved as a Terraform secret. Normally we'd either have to extract it from the logs or as a file on the server. Do recall too that the backend S3 state is encrypted.
 
 ## Post-Terraform Jenkins Setup
+
 * The `aws-auth` ConfigMap needs to be updated to allow the `ecr-ci` role access to the cluster as well. Jenkins is configured to use Kubernetes pods as the agents, and since the agents can have a service account, I used IRSA to be able to effectively "pass" an IAM role to the worker. By adding that IAM role to the `aws-auth` ConfigMap, the CI job can trigger the service rollout.
 * The plugins and basic configuration were handled through `plugins.txt` and `casc.yaml` - the latter of which is Jenkins' configuration-as-code (JCasC). I have never actually done any Jenkins administration, so this realm is completely brand new to me. I found [this guide in DigitalOcean](https://www.digitalocean.com/community/tutorials/how-to-automate-jenkins-setup-with-docker-and-jenkins-configuration-as-code#step-2-installing-jenkins-plugins) to be very helpful.
 * The pipeline job itself was taken from its folder from `/var/jenkins_home/jobs`. And yes, even though the token to trigger the build is visible, you'll still need to authenticate as the admin user to actually trigger the job remotely.
@@ -43,6 +53,7 @@ Where possible, I leverage the IAM Role for Service Account pattern. This satisf
 * Finally, kick off the build.
 
 ## Jenkins Build Steps
+
 The goal of the build is to build the image, push the image to ECR, then restart the service.
 1. The first step simply retrieves the latest commit SHA and writes it to a file. The reason is that the new image will have two tags: `latest`, and the commit SHA. That way we can have a one-to-one mapping of the image and the commit that it's based off of.
 2. We use [Kaniko](https://github.com/GoogleContainerTools/kaniko) to build the image itself. We should be able to auth into AWS ECR because of the IRSA-supplied IAM role granting access to do so. Kaniko builds the image from the app's Dockerfile, then pushes it up with its two tags.
