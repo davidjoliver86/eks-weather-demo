@@ -1,0 +1,72 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@1316.vd2290d3341a_f">
+  <actions/>
+  <description></description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty>
+      <abortPrevious>false</abortPrevious>
+    </org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty>
+    <com.coravy.hudson.plugins.github.GithubProjectProperty plugin="github@1.37.1">
+      <projectUrl>https://github.com/davidjoliver86/eks-weather-demo/</projectUrl>
+      <displayName></displayName>
+    </com.coravy.hudson.plugins.github.GithubProjectProperty>
+    <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+      <triggers>
+        <com.cloudbees.jenkins.GitHubPushTrigger plugin="github@1.37.1">
+          <spec></spec>
+        </com.cloudbees.jenkins.GitHubPushTrigger>
+      </triggers>
+    </org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@3705.va_6a_c2775a_c17">
+    <script>podTemplate(
+    containers: [
+        containerTemplate(name: &quot;build-tools&quot;, image: &quot;davidjoliver86/build-tools:latest&quot;, command: &quot;sleep&quot;, args: &quot;999999&quot;),
+        containerTemplate(name: &quot;kaniko&quot;, image: &quot;gcr.io/kaniko-project/executor:v1.12.1-debug&quot;, command: &quot;sleep&quot;, args: &quot;999999&quot;)
+    ],
+    serviceAccount: &quot;ecr-ci&quot;,
+    envVars: [podEnvVar(key: &quot;AWS_SDK_LOAD_CONFIG&quot;, value: &quot;true&quot;)]
+) {
+    node(POD_LABEL) {
+        stage(&apos;build and deploy all the things&apos;) {
+            git url: &apos;https://github.com/davidjoliver86/eks-weather-demo.git&apos;, branch: &apos;main&apos;
+            container(&apos;build-tools&apos;) {
+                stage(&apos;get commit sha&apos;) {
+                    sh &apos;&apos;&apos;
+                    SHA=$(git rev-parse HEAD)
+                    echo Latest commit SHA: $SHA
+                    echo $SHA &gt; latest_sha
+                    &apos;&apos;&apos;
+                }
+            }
+            container(&apos;kaniko&apos;) {
+                stage(&apos;build app and push with kaniko&apos;) {
+                    sh &apos;&apos;&apos;
+                    SHA=$(cat latest_sha)
+                    echo &apos;{&quot;credsStore&quot;: &quot;ecr-login&quot;}&apos; &gt; /kaniko/.docker/config
+                    /kaniko/executor --dockerfile $(pwd)/app/Dockerfile --context $(pwd)/app --destination 255595642331.dkr.ecr.us-east-2.amazonaws.com/weather-app:latest --destination 255595642331.dkr.ecr.us-east-2.amazonaws.com/weather-app:${SHA}
+                    &apos;&apos;&apos;
+                }
+            }
+            container(&apos;build-tools&apos;) {
+                stage(&apos;kubectl commands to refresh service&apos;) {
+                    sh &apos;&apos;&apos;
+                    aws eks update-kubeconfig --name weather
+                    kubectl apply -f app-manifests/deployment.yaml
+                    kubectl apply -f app-manifests/service.yaml
+                    CERTIFICATE_ARN=$(kubectl get ingress nginx -n default -o yaml | grep certificate-arn | awk &apos;{print $2}&apos;)
+                    sed -e &quot;s|REPLACE_ME_WITH_NGINXS_CERT_ARN|$CERTIFICATE_ARN|g&quot; app-manifests/ingress.yaml | kubectl apply -f -
+                    kubectl rollout restart -n default deployment/weather-app
+                    &apos;&apos;&apos;
+                }
+            }
+        }
+    }
+}</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+  <authToken>ImMrMeeseeks</authToken>
+</flow-definition>

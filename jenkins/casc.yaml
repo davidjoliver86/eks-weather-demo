@@ -1,0 +1,45 @@
+jenkins:
+  clouds:
+  - kubernetes:
+      containerCap: 10
+      containerCapStr: "10"
+      name: "kubernetes"
+      templates:
+      - containers:
+        - args: "9999999"
+          command: "sleep"
+          image: "jenkins/inbound-agent"
+          livenessProbe:
+            failureThreshold: 0
+            initialDelaySeconds: 0
+            periodSeconds: 0
+            successThreshold: 0
+            timeoutSeconds: 0
+          name: "jenkins-inbound-agent"
+          workingDir: "/home/jenkins/agent"
+        id: "673daf7e-4522-4491-88a4-23afa21c6d65"
+        name: "jenkins-inbound-agent"
+        nodeUsageMode: "NORMAL"
+        yamlMergeStrategy: "override"
+      webSocket: true
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+       - id: ${JENKINS_ADMIN_ID}
+         password: ${JENKINS_ADMIN_PASSWORD}
+  authorizationStrategy:
+    globalMatrix:
+      permissions:
+      - "GROUP:Overall/Administer:authenticated"
+      - "GROUP:Overall/Read:authenticated"
+  remotingSecurity:
+    enabled: true
+security:
+  queueItemAuthenticator:
+    authenticators:
+    - global:
+        strategy: triggeringUsersAuthorizationStrategy
+unclassified:
+  location:
+    url: https://jenkins.davidjoliver86.xyz
